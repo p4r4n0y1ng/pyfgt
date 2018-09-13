@@ -253,8 +253,10 @@ class FortiGate(object):
         if self.api_key_used:
             headers = {"content-type": "application/json",
                        "Authorization": "Bearer {apikey}".format(apikey=self._passwd)}
+            self._session.headers.update(headers)
         else:
             headers = {"content-type": "application/json"}
+            self._session.headers.update(headers)
         try:
             if "logincheck" in self._url:
                 if self.api_key_used:
