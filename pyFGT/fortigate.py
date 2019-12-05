@@ -209,12 +209,16 @@ class FortiGate(object):
             self.dprint("RESPONSE:", {"status_code": response.status_code, "message": "Logout Failed"})
             return -1, {"status_code": response.status_code, "message": "Logout Failed"}
 
-    def _handle_response(self, response):
+    def _handle_response(self, resp):
         if "logincheck" in self._url:
-            return self.__handle_response_login(response)
+            return self.__handle_response_login(resp)
         elif "logout" in self._url:
-            return self.__handle_response_logout(response)
+            return self.__handle_response_logout(resp)
         else:
+            try:
+                response = resp.json()
+            except:
+                return -1, resp
             try:
                 if "text" in response:
                     if type(response["text"]["results"]) is list:
@@ -287,7 +291,7 @@ class FortiGate(object):
                 method_to_call = getattr(self._session, method)
                 self.dprint("{method} REQUEST: {url}".format(method=method.upper(), url=self._url), json_request)
                 response = method_to_call(self._url, headers=headers, data=json.dumps(json_request),
-                                          verify=self.verify_ssl, timeout=self.timeout).json()
+                                          verify=self.verify_ssl, timeout=self.timeout)
         except ReqConnError as err:
             self.dprint("Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err))
             raise FGTConnectionError(err)
