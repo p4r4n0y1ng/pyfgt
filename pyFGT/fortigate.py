@@ -11,41 +11,44 @@ log = logging.getLogger("fortigate")
 class FGTBaseException(Exception):
     """Wrapper to catch the unexpected"""
 
-    def __init__(self, msg=None, *args, **kwargs):
-        if msg is None:
-            msg = "An exception occurred within pyfmg"
-        super(FGTBaseException, self).__init__(msg, *args, **kwargs)
+    def __init__(self, msg):
+        super(FGTBaseException, self).__init__(msg)
 
 
 class FGTValidSessionException(FGTBaseException):
     """Raised when a call is made, but there is no valid login instance"""
 
-    def __init__(self, method, url, *args, **kwargs):
-        msg = "A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
-              "valid session or was not connected. Paramaters were:\n{params}". \
-            format(method=method, url=url, params=kwargs)
-        super(FGTValidSessionException, self).__init__(msg, *args, **kwargs)
+    def __init__(self, method, url, **kwargs):
+        if kwargs:
+            msg = "A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
+                  "valid session or was not connected. Parameters were:\n{params}". \
+                format(method=method, url=url, params=kwargs)
+        else:
+            msg = "A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
+                  "valid session or was not connected.". \
+                format(method=method, url=url)
+        super(FGTValidSessionException, self).__init__(msg)
 
 
 class FGTValueError(ValueError):
     """Catch value errors such as bad timeout values"""
 
-    def __init__(self, *args, **kwargs):
-        super(FGTValueError, self).__init__(*args, **kwargs)
+    def __init__(self, msg):
+        super(FGTValueError, self).__init__(msg)
 
 
 class FGTResponseNotFormedCorrect(KeyError):
     """Used only if a response does not have a standard format as based on FGT response guidelines"""
 
-    def __init__(self, *args, **kwargs):
-        super(FGTResponseNotFormedCorrect, self).__init__(*args, **kwargs)
+    def __init__(self, msg):
+        super(FGTResponseNotFormedCorrect, self).__init__(msg)
 
 
 class FGTConnectionError(ReqConnError):
     """Wrap requests Connection error so requests is not a dependency outside this module"""
 
-    def __init__(self, *args, **kwargs):
-        super(FGTConnectionError, self).__init__(*args, **kwargs)
+    def __init__(self, msg):
+        super(FGTConnectionError, self).__init__(msg)
 
 
 class FGTConnectTimeout(ReqConnTimeout):
@@ -55,9 +58,62 @@ class FGTConnectTimeout(ReqConnTimeout):
         super(FGTConnectTimeout, self).__init__(*args, **kwargs)
 
 
+class RequestResponse(object):
+    """Simple wrapper around the request response object so debugging and logging can be done with simplicity"""
+
+    def __init__(self):
+        self._request_string = "REQUEST:"
+        self._response_string = "RESPONSE:"
+        self._request_json = None
+        self._response_json = None
+        self._error_msg = None
+
+    def reset(self):
+        self.error_msg = None
+        self.response_json = None
+        self.request_json = None
+        self._request_string = "REQUEST:"
+
+    @property
+    def request_string(self):
+        return self._request_string
+
+    @request_string.setter
+    def request_string(self, val):
+        self._request_string = val
+
+    @property
+    def response_string(self):
+        return self._response_string
+
+    @property
+    def request_json(self):
+        return self._request_json
+
+    @request_json.setter
+    def request_json(self, val):
+        self._request_json = val
+
+    @property
+    def response_json(self):
+        return self._response_json
+
+    @response_json.setter
+    def response_json(self, val):
+        self._response_json = val
+
+    @property
+    def error_msg(self):
+        return self._error_msg
+
+    @error_msg.setter
+    def error_msg(self, val):
+        self._error_msg = val
+
+
 class FortiGate(object):
 
-    def __init__(self, host, user, passwd=None, debug=False, use_ssl=True, verify_ssl=False, timeout=300,
+    def __init__(self, host, user=None, passwd=None, debug=False, use_ssl=True, verify_ssl=False, timeout=300,
                  disable_request_warnings=False, apikey=None):
         super(FortiGate, self).__init__()
         self._host = host
@@ -72,6 +128,7 @@ class FortiGate(object):
         self._verify_ssl = verify_ssl
         self._apikeyused = True if passwd is None and apikey is not None else False
         self._passwd = passwd if passwd is not None else apikey
+        self._req_resp_object = RequestResponse()
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
@@ -126,19 +183,38 @@ class FortiGate(object):
     def timeout(self, val):
         self._timeout = val
 
+    @property
+    def fgt_session(self):
+        if self._session is None:
+            with requests.session() as sess:
+                self._session = sess
+        return self._session
+
+    @property
+    def req_resp_object(self):
+        return self._req_resp_object
+
     @staticmethod
     def jprint(json_obj):
         try:
             return json.dumps(json_obj, indent=2, sort_keys=True)
         except TypeError as te:
-            return json.dumps({"Type Information": te.message})
+            return json.dumps({"Type Information": te.args})
 
-    def dprint(self, msg, s=None):
-        if self.debug:
-            print(msg)
-            if s is not None:
-                print(self.jprint(s) + "\n")
-        pass
+    def dprint(self):
+        if not self.debug:
+            return
+        if self.req_resp_object.error_msg is not None:
+            print(self.req_resp_object.error_msg)
+            return
+        print("-" * 100 + "\n")
+        print(self.req_resp_object.request_string)
+        if self.req_resp_object.request_json is not None:
+            print(self.jprint(self.req_resp_object.request_json))
+        print("\n" + self.req_resp_object.response_string)
+        if self.req_resp_object.response_json is not None:
+            print(self.jprint(self.req_resp_object.response_json))
+        print("\n" + "-" * 100 + "\n")
 
     def _set_sid(self, response):
         if self.api_key_used:
@@ -147,7 +223,7 @@ class FortiGate(object):
         for cookie in response.cookies:
             if cookie.name == "ccsrftoken":
                 csrftoken = cookie.value[1:-1]
-                self._session.headers.update({"X-CSRFTOKEN": csrftoken})
+                self.fgt_session.headers.update({"X-CSRFTOKEN": csrftoken})
             if "APSCOOKIE_" in cookie.name:
                 self.sid = cookie.value
 
@@ -191,22 +267,29 @@ class FortiGate(object):
                 return -1, {"status_code": response.status_code,
                             "message": "Login Failed Status Code {} Returned".format(response.status_code)}
         except IndexError as err:
-            self.dprint("Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err))
-            raise FGTResponseNotFormedCorrect(err)
+            msg = "Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            self.req_resp_object.error_msg = msg
+            self.dprint()
+            raise FGTResponseNotFormedCorrect(msg)
 
     def __handle_response_login(self, response):
         login_response = self.__handle_login_values(response)
-        self.dprint("RESPONSE:", login_response[1])
+        self.req_resp_object.response_json = login_response[1]
+        self.dprint()
         return login_response
 
     def __handle_response_logout(self, response):
         self._sid = None
         self._req_id = 0
         if response.status_code == 200:
-            self.dprint("RESPONSE:", {"status_code": response.status_code, "message": "Logout Successful"})
-            return 0, {"status_code": response.status_code, "message": "Logout Successful"}
+            logout_json = {"status_code": response.status_code, "message": "Logout Successful"}
+            self.req_resp_object.response_json = logout_json
+            self.dprint()
+            return 0, logout_json
         else:
-            self.dprint("RESPONSE:", {"status_code": response.status_code, "message": "Logout Failed"})
+            logout_json = {"status_code": response.status_code, "message": "Logout Failed"}
+            self.req_resp_object.response_json = logout_json
+            self.dprint()
             return -1, {"status_code": response.status_code, "message": "Logout Failed"}
 
     def _handle_response(self, resp):
@@ -218,33 +301,48 @@ class FortiGate(object):
             try:
                 response = resp.json()
             except:
-                return -1, resp
+                # response is not able to be decoded into json return 100 as a code and the entire response object
+                return 100, resp
             try:
                 if "text" in response:
                     if type(response["text"]["results"]) is list:
                         result = response["text"]["results"][0]
                     else:
                         result = response["text"]["results"]
-                    self.dprint("RESPONSE:", result)
+                    self.req_resp_object.response_json = result
+                    self.dprint()
                     if "http_status" in response:
                         return response["http_status"], result
                     else:
                         return response["status"], result
                 else:
+                    self.req_resp_object.response_json = response
+                    self.dprint()
                     if "http_status" in response:
-                        self.dprint("RESPONSE:", response)
                         return response["http_status"], response
                     else:
-                        self.dprint("RESPONSE:", response)
                         return response["status"], response
             except IndexError as err:
-                self.dprint("Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err))
-                raise FGTResponseNotFormedCorrect(err)
+                msg = "Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+                self.req_resp_object.error_msg = msg
+                self.dprint()
+                raise FGTResponseNotFormedCorrect(msg)
             except Exception as e:
                 print("Response parser error: {err_type} {err}".format(err_type=type(e), err=e))
                 return -1, e
 
+    def _update_headers(self):
+        if self.api_key_used:
+            headers = {"content-type": "application/json",
+                       "Authorization": "Bearer {apikey}".format(apikey=self._passwd)}
+            self.fgt_session.headers.update(headers)
+        else:
+            headers = {"content-type": "application/json"}
+            self.fgt_session.headers.update(headers)
+        return headers
+
     def _post_request(self, method, url, params):
+        self.req_resp_object.reset()
 
         class InterResponse(object):
             def __init__(self):
@@ -254,24 +352,22 @@ class FortiGate(object):
         if self.sid is None and "logincheck" not in url:
             raise FGTValidSessionException(method, params)
         self._update_request_id()
-        if self.api_key_used:
-            headers = {"content-type": "application/json",
-                       "Authorization": "Bearer {apikey}".format(apikey=self._passwd)}
-            self._session.headers.update(headers)
-        else:
-            headers = {"content-type": "application/json"}
-            self._session.headers.update(headers)
+        headers = self._update_headers()
+        json_request = {}
+        response = None
         try:
             if "logincheck" in self._url:
                 if self.api_key_used:
                     iresponse = InterResponse()
                     return self._handle_response(iresponse)
                 else:
-                    method_to_call = getattr(self._session, method)
+                    method_to_call = getattr(self.fgt_session, method)
                     json_request = "username={uname}&secretkey={pword}&ajax=1".format(uname=self._user,
                                                                                       pword=self._passwd)
-                    self.dprint("{method} REQUEST: {url} for user {uname} with password {passwd} ".
-                                format(method=method.upper(), url=self._url, uname=self._user, passwd=self._passwd))
+                    self.req_resp_object.request_string = "{method} REQUEST: {url} for user {uname} with " \
+                                                          "password {passwd}".format(method=method.upper(),
+                                                                                     url=self._url, uname=self._user,
+                                                                                     passwd=self._passwd)
                     response = method_to_call(self._url, headers=headers, data=json_request, verify=self.verify_ssl,
                                               timeout=self.timeout)
             elif "logout" in self._url:
@@ -279,35 +375,46 @@ class FortiGate(object):
                     iresponse = InterResponse()
                     return self._handle_response(iresponse)
                 else:
-                    self._session.headers = None
-                    method_to_call = getattr(self._session, method)
-                    self.dprint("{method} REQUEST: {url}".format(method=method.upper(), url=self._url, uname=self._user,
-                                                                 passwd=self._passwd))
+                    self.fgt_session.headers = None
+                    method_to_call = getattr(self.fgt_session, method)
+                    self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method=method.upper(),
+                                                                                           url=self._url,
+                                                                                           uname=self._user,
+                                                                                           passwd=self._passwd)
                     response = method_to_call(self._url, headers=headers, verify=self.verify_ssl, timeout=self.timeout)
             else:
-                json_request = {}
                 if params is not None:
                     json_request = params
-                method_to_call = getattr(self._session, method)
-                self.dprint("{method} REQUEST: {url}".format(method=method.upper(), url=self._url), json_request)
+                method_to_call = getattr(self.fgt_session, method)
+                self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method=method.upper(),
+                                                                                       url=self._url)
+                self.req_resp_object.request_json = json_request
                 response = method_to_call(self._url, headers=headers, data=json.dumps(json_request),
                                           verify=self.verify_ssl, timeout=self.timeout)
         except ReqConnError as err:
-            self.dprint("Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err))
-            raise FGTConnectionError(err)
+            msg = "Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            self.req_resp_object.error_msg = msg
+            self.dprint()
+            raise FGTConnectionError(msg)
         except ValueError as err:
-            self.dprint("Value error: {err_type} {err}\n\n".format(err_type=type(err), err=err))
-            raise FGTValueError(err)
+            msg = "Value error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            self.req_resp_object.error_msg = msg
+            self.dprint()
+            raise FGTValueError(msg)
         except KeyError as err:
-            self.dprint("Key error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err))
-            raise FGTResponseNotFormedCorrect(err)
+            msg = "Key error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            self.req_resp_object.error_msg = msg
+            self.dprint()
+            raise FGTResponseNotFormedCorrect(msg)
         except Exception as err:
-            self.dprint("Response parser error: {err_type} {err}".format(err_type=type(err), err=err))
-            raise FGTBaseException(err)
+            msg = "Response parser error: {err_type} {err}".format(err_type=type(err), err=err)
+            self.req_resp_object.error_msg = msg
+            self.dprint()
+            raise FGTBaseException(msg)
         return self._handle_response(response)
 
     def login(self):
-        self._session = requests.session()
+        self._session = self.fgt_session
         login_response = self.post("logincheck")
         if login_response[0] == 0:
             return self
