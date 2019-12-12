@@ -120,6 +120,36 @@ A standard, response mechanism is provided from this module so calling objects k
 (0, {"status_code": response.status_code, "message": "Logout Successful"})
 ``` 
 
+## Logging
+
+A logging functionality has been provided to enable logging to different handlers as required by the caller using the standard python logging facility. The capability to start logging is simply by calling the *getLog* function. This function returns the internal logging reference held by the FortiGate instance. To add or remove a handler use the associated *addHandler()* or *removeHandler()* functions providing a FileHandler or StreamHandler etc... object. The signature for the *getLog()* function is:
+
+```
+def getLog(self, loggername="fortinet", lvl=logging.INFO)
+``` 
+
+Once a logger is created by calling the *getLog* function, the logger will log the debug information to whatever handler was provided to the *addHandler()* function. If more than one handler is added, more than one log will occur. To stop logging simply use the *resetLog()* function and the Logging object will be set to None. An example of how to log all debug output to a file would be:
+
+```
+fgt.getLog(loggername="fgt")
+fh = logging.FileHandler("/location/to/log/fil.log")
+fh.setLevel(logging.INFO)
+fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s: %(message)s ", "%m/%d/%Y %I:%M:%S %p"))
+fgt.addHandler(fh)
+```
+
+An external module can utilize standard logging functionality to provide a subordinate type logging function using the same handlers as provided to the pyFGT module. For instance, to log to the same location as the pyFGT module logs Handler is set, you would simply have to do the following:
+
+```
+fgt_logger = logging.getLogger("fgt.drvr")
+
+# somewhere in the module
+fgt_logger.log(logging.INFO, "This is a log message)
+```
+
+The log output in this case would have the fgt.drvr moniker in the format header due to the use of the *%(name)s* format string shown above.
+
+
 ## Motivation
 
 This package supports Ansible requirements and proper mod_utils utilization, however, it can be utilized for contact with any Fortinet FortiGate appliance or VM asset. 
