@@ -364,13 +364,17 @@ class FortiGate(object):
 
     def _update_headers(self):
         if self.api_key_used:
-            headers = {"content-type": "application/json",
-                       "Authorization": "Bearer {apikey}".format(apikey=self._passwd)}
-            self.fgt_session.headers.update(headers)
+            self.fgt_session.headers.update({"content-type": "application/json",
+                                             "Authorization": "Bearer {apikey}".format(apikey=self._passwd)})
         else:
-            headers = {"content-type": "application/json"}
-            self.fgt_session.headers.update(headers)
-        return headers
+            self.fgt_session.headers.update({"content-type": "application/json"})
+
+    def add_header(self, header_dict):
+        if isinstance(header_dict, dict):
+            self.fgt_session.headers.update(header_dict)
+
+    def remove_header(self, key_to_remove):
+        self.fgt_session.headers.pop(key_to_remove, None)
 
     def _post_request(self, method, url, params):
         self.req_resp_object.reset()
@@ -383,7 +387,7 @@ class FortiGate(object):
         if self.sid is None and "logincheck" not in url:
             raise FGTValidSessionException(method, params)
         self._update_request_id()
-        headers = self._update_headers()
+        self._update_headers()
         json_request = {}
         response = None
         try:
@@ -399,8 +403,8 @@ class FortiGate(object):
                                                           "password {passwd}".format(method=method.upper(),
                                                                                      url=self._url, uname=self._user,
                                                                                      passwd=self._passwd)
-                    response = method_to_call(self._url, headers=headers, data=json_request, verify=self.verify_ssl,
-                                              timeout=self.timeout)
+                    response = method_to_call(self._url, headers=self.fgt_session.headers, data=json_request,
+                                              verify=self.verify_ssl, timeout=self.timeout)
             elif "logout" in self._url:
                 if self.api_key_used:
                     iresponse = InterResponse()
@@ -412,7 +416,8 @@ class FortiGate(object):
                                                                                            url=self._url,
                                                                                            uname=self._user,
                                                                                            passwd=self._passwd)
-                    response = method_to_call(self._url, headers=headers, verify=self.verify_ssl, timeout=self.timeout)
+                    response = method_to_call(self._url, headers=self.fgt_session.headers, verify=self.verify_ssl,
+                                              timeout=self.timeout)
             else:
                 if params is not None:
                     json_request = params
@@ -420,7 +425,7 @@ class FortiGate(object):
                 self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method=method.upper(),
                                                                                        url=self._url)
                 self.req_resp_object.request_json = json_request
-                response = method_to_call(self._url, headers=headers, data=json.dumps(json_request),
+                response = method_to_call(self._url, headers=self.fgt_session.headers, data=json.dumps(json_request),
                                           verify=self.verify_ssl, timeout=self.timeout)
         except ReqConnError as err:
             msg = "Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
