@@ -425,8 +425,14 @@ class FortiGate(object):
                 self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method=method.upper(),
                                                                                        url=self._url)
                 self.req_resp_object.request_json = json_request
-                response = method_to_call(self._url, headers=self.fgt_session.headers, data=json.dumps(json_request),
-                                          verify=self.verify_ssl, timeout=self.timeout)
+                if len(json_request) == 0:
+                    response = method_to_call(self._url, headers=self.fgt_session.headers, verify=self.verify_ssl,
+                                              timeout=self.timeout)
+                else:
+                    response = method_to_call(self._url, headers=self.fgt_session.headers,
+                                              data=json.dumps(json_request), verify=self.verify_ssl,
+                                              timeout=self.timeout)
+
         except ReqConnError as err:
             msg = "Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
             self.req_resp_object.error_msg = msg
