@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='pyfgt',
-    version='0.5.5',
+    version='0.5.6',
     packages=find_packages(),
     url='https://github.com/p4r4n0y1ng/pyfgt',
     license='Apache 2.0',
