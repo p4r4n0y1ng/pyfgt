@@ -113,7 +113,7 @@ class RequestResponse(object):
 class FortiGate(object):
 
     def __init__(self, host, user=None, passwd=None, debug=False, use_ssl=True, verify_ssl=False, timeout=300,
-                 disable_request_warnings=False, apikey=None):
+                 disable_request_warnings=False, apikey=None, old_password="", new_password=""):
         super(FortiGate, self).__init__()
         self._host = host
         self._user = user
@@ -125,7 +125,9 @@ class FortiGate(object):
         self._debug = debug
         self._use_ssl = use_ssl
         self._verify_ssl = verify_ssl
-        self._apikeyused = True if passwd is None and apikey is not None else False
+        self._old_passwd = old_password
+        self._new_passwd = new_password
+        self._api_key_used = True if passwd is None and apikey is not None else False
         self._passwd = passwd if passwd is not None else apikey
         self._req_resp_object = RequestResponse()
         self._logger = None
@@ -135,11 +137,27 @@ class FortiGate(object):
 
     @property
     def api_key_used(self):
-        return self._apikeyused
+        return self._api_key_used
 
     @api_key_used.setter
     def api_key_used(self, val):
-        self._apikeyused = val
+        self._api_key_used = val
+
+    @property
+    def old_password(self):
+        return self._old_passwd
+
+    @old_password.setter
+    def old_password(self, val):
+        self._old_passwd = val
+
+    @property
+    def new_password(self):
+        return self._new_passwd
+
+    @new_password.setter
+    def new_password(self, val):
+        self._new_passwd = val
 
     @property
     def debug(self):
@@ -297,9 +315,6 @@ class FortiGate(object):
             print("Response parser error: {err_type} {err}".format(err_type=type(e), err=e))
             return -1, e
 
-    def _update_headers(self):
-        self.fgt_session.headers.update({"Content-Type": "application/json"})
-
     def add_header(self, header_dict):
         if isinstance(header_dict, dict):
             self.fgt_session.headers.update(header_dict)
@@ -309,11 +324,9 @@ class FortiGate(object):
 
     def _post_request(self, method, url, params):
         self.req_resp_object.reset()
-
         if self.sid is None:
             raise FGTValidSessionException(method, params)
         self._update_request_id()
-        self._update_headers()
         json_request = {}
         response = None
         try:
@@ -352,9 +365,9 @@ class FortiGate(object):
 
     def login(self):
         self._session = self.fgt_session
-        fgt_login = self.FortiGateLogin(self._host, self._user, self._passwd, self._apikeyused, self._use_ssl,
-                                        self.verify_ssl, self.timeout, True, True, self._req_resp_object,
-                                        self.fgt_session, self.dprint)
+        fgt_login = self.FortiGateLogin(self._host, self._user, self._passwd, self._api_key_used, self._use_ssl,
+                                        self.verify_ssl, self.timeout, self.old_password, self.new_password,
+                                        self._req_resp_object, self.fgt_session, self.dprint)
         if fgt_login.login_code == 5:
             self._passwd = fgt_login.session_key
             self.api_key_used = True
@@ -426,8 +439,9 @@ class FortiGate(object):
 
     class FortiGateLogin(object):
 
-        def __init__(self, host, user, passwd, api_key_used, use_ssl, verify_ssl, timeout, pre_disclaimer, post_disclaimer,
-                     req_resp_obj: RequestResponse, session_ptr: requests.sessions.Session, print_ptr):
+        def __init__(self, host, user, passwd, api_key_used, use_ssl, verify_ssl, timeout,
+                     old_password, new_password, req_resp_obj: RequestResponse, session_ptr: requests.sessions.Session,
+                     print_ptr):
             self._url = "{proto}://{host}/api/v2/authentication".format(proto="https" if use_ssl else "http", host=host)
             self._host = host
             self._user = user
@@ -437,40 +451,19 @@ class FortiGate(object):
             self._api_key = passwd
             self._passwd = passwd
             self._api_key_used = api_key_used
-            self._ack_pre_disclaimer = pre_disclaimer
-            self._ack_post_disclaimer = post_disclaimer
+            self._old_passwd = old_password
+            self._new_passwd = new_password
             self._session_key = None
             self._session_id = None
             self._req_id = 0
             self._login_message = "NA"
+            self._login_error = ""
             self._login_code = 1
             self._req_resp_obj = req_resp_obj
             self._session_ptr = session_ptr
-            # todo: is here just for printing for now
             self._print_ptr = print_ptr
 
             self._do_login()
-
-        def _do_login(self):
-            if self._api_key_used:
-                self._session_key = self._passwd
-                self._login_message = "API Key used at login"
-                self._session_id = str(uuid.uuid4())
-                self._login_code = 5
-                return
-
-            json_request = {
-                "username": self._user,
-                "secretkey": self._passwd,
-                "ack_pre_disclaimer": True,
-                "request_key": True
-            }
-            login_response = self._post_request(json_request)
-            self._req_resp_obj.response_json = login_response.json()
-            self._print_ptr()
-            if self.login_code == 5:
-                self._session_id = str(uuid.uuid4())
-                return
 
         def _update_request_id(self):
             self._req_id += 1
@@ -495,14 +488,53 @@ class FortiGate(object):
         def login_code(self):
             return self._login_code
 
+        @property
+        def login_error(self):
+            return self._login_error
+
+        def _send_login_info(self, json_request):
+            login_response = self._post_request(json_request)
+            self._req_resp_obj.response_json = login_response.json()
+            self._print_ptr()
+            return login_response
+
+        def _do_login(self):
+            if self._api_key_used:
+                self._session_key = self._passwd
+                self._login_message = "API Key used at login"
+                self._session_id = str(uuid.uuid4())
+                self._login_code = 5
+                return
+
+            json_request = {
+                "username": self._user,
+                "secretkey": self._passwd,
+                "ack_pre_disclaimer": True,
+                "request_key": True
+            }
+            self._send_login_info(json_request)
+            if self.login_code == 5:
+                self._session_id = str(uuid.uuid4())
+            elif self._login_code == 4:
+                json_request = {
+                    "secretkey": self._old_passwd,
+                    "new_password1": self._new_passwd,
+                    "new_password2": self._new_passwd,
+                    "session_key": self._session_key
+                }
+                self._send_login_info(json_request)
+                if self.login_code == 5:
+                    self._session_id = str(uuid.uuid4())
+                print(self.login_message)
+
         def _set_login_values(self, response):
             # status code defines if login was successful
             # -2 Log in failure - LOGIN_ACCEPT_PRE_LOGIN_DISCLAIMER
             # -1 LOGIN_FAILED
             # 0 LOGIN_INVALID
             # 1 Internal Use Only
-            # 2 LOGIN_TFA - login process is still in progress - Unless push notifications are enabled, the next API call
-            # must include the session key/cookie and the parameter token_code set to the token code.
+            # 2 LOGIN_TFA - login process is still in progress - Unless push notifications are enabled, the next API
+            # call must include the session key/cookie and the parameter token_code set to the token code.
             # 3 LOGIN_ACCEPT_POST_LOGIN_DISCLAIMER - login is still in progress - The post disclaimer must be accepted.
             # In the next API call, the session key/cookie and ack_post_disclaimer=true must be provided. By default, in
             # this module it IS set to True
@@ -523,6 +555,7 @@ class FortiGate(object):
                 self._login_message = "NA" if response.json().get("status_code", 1) == 1 else \
                     response.json().get("status_message", "")
                 self._session_key = response.json().get("session_key", "")
+                self._login_error = response.json().get("error", "")
             else:
                 msg = "Login failed and received a status code of {status}".format(status=response.status_code)
                 raise FGTConnectionError(msg)
