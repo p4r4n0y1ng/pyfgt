@@ -268,14 +268,14 @@ class FortiGate(object):
         print("\n" + "-" * 100 + "\n")
 
     def _set_url(self, url, *args):
+        self.fgt_session.headers.update({"Authorization": "Bearer {apikey}".
+                                        format(apikey=self._passwd if self.api_key_used else "")})
         if url[0] == "/":
             url = url[1:]
-        token = "/?access_token={token}".format(token=self._passwd) if self.api_key_used else ""
-        self._url = "{proto}://{host}/api/v2/{url}{api_key}".format(proto="https" if self._use_ssl else "http",
-                                                                    host=self._host, url=url, api_key=token)
+        self._url = "{proto}://{host}/api/v2/{url}".format(proto="https" if self._use_ssl else "http",
+                                                           host=self._host, url=url)
         if len(args) > 0:
-            if not self.api_key_used:
-                self._url = "{url}?".format(url=self._url)
+            self._url = "{url}?".format(url=self._url)
             try:
                 self._url = self._url + "&".join(args)
             except:
@@ -577,7 +577,7 @@ class FortiGate(object):
             except FGTConnectionError as err:
                 self._req_resp_obj.error_msg = str(err)
                 self._print_ptr()
-                raise FGTConnectionError
+                raise FGTConnectionError(self._req_resp_obj.error_msg)
             except ReqConnError as err:
                 msg = "Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
                 self._req_resp_obj.error_msg = msg
