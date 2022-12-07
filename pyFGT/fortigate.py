@@ -379,8 +379,10 @@ class FortiGate(object):
     def logout(self):
         self.req_resp_object.reset()
         self._update_request_id()
-        self._url = "{proto}://{host}/api/v2/authentication?access_token={sid}".\
-            format(proto="https" if self._use_ssl else "http", host=self._host, sid=self._passwd)
+        self.fgt_session.headers.update({"Authorization": "Bearer {apikey}".
+                                        format(apikey=self._passwd if self.api_key_used else "")})
+        self._url = "{proto}://{host}/api/v2/authentication".\
+            format(proto="https" if self._use_ssl else "http", host=self._host)
         self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method="DELETE", url=self._url)
         try:
             response = self.fgt_session.delete(self._url, verify=self._verify_ssl, timeout=self._timeout)
@@ -510,6 +512,7 @@ class FortiGate(object):
                 "username": self._user,
                 "secretkey": self._passwd,
                 "ack_pre_disclaimer": True,
+                "ack_post_disclaimer": True,
                 "request_key": True
             }
             self._send_login_info(json_request)
@@ -517,10 +520,13 @@ class FortiGate(object):
                 self._session_id = str(uuid.uuid4())
             elif self._login_code == 4:
                 json_request = {
+                    "username": self._user,
                     "secretkey": self._old_passwd,
                     "new_password1": self._new_passwd,
                     "new_password2": self._new_passwd,
-                    "session_key": self._session_key
+                    "ack_pre_disclaimer": True,
+                    "ack_post_disclaimer": True,
+                    "request_key": True
                 }
                 self._send_login_info(json_request)
                 if self.login_code == 5:
