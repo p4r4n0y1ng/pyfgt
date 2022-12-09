@@ -386,17 +386,33 @@ class FortiGate(object):
     def logout(self):
         self.req_resp_object.reset()
         self._update_request_id()
-        self.fgt_session.headers.update({"Authorization": "Bearer {apikey}".
-                                        format(apikey=self._passwd if self.api_key_used else "")})
-        self._url = "{proto}://{host}/api/v2/authentication".\
-            format(proto="https" if self._use_ssl else "http", host=self._host)
-        self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method="DELETE", url=self._url)
+        if self.api_key_used:
+            self.fgt_session.headers.update({"Authorization": "Bearer {apikey}".
+                                            format(apikey=self._passwd if self.api_key_used else "")})
+            self._url = "{proto}://{host}/api/v2/authentication".\
+                format(proto="https" if self._use_ssl else "http", host=self._host)
+            self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method="DELETE", url=self._url)
+        else:
+            self._url = "{proto}://{host}/logout".format(proto="https" if self._use_ssl else "http", host=self._host)
+            self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method="POST", url=self._url)
         try:
-            response = self.fgt_session.delete(self._url, verify=self._verify_ssl, timeout=self._timeout)
-            self.req_resp_object.response_json = response.json()
-            self.dprint()
             self.sid = None
             self.req_id = 0
+            if self.api_key_used:
+                response = self.fgt_session.delete(self._url, verify=self._verify_ssl, timeout=self._timeout)
+                self.req_resp_object.response_json = response.json()
+                self.dprint()
+            else:
+                # legacy logout taking place
+                response = self.fgt_session.post(self._url, verify=self._verify_ssl, timeout=self._timeout)
+                if response.status_code == 200:
+                    logout_json = {"status_code": response.status_code, "message": "Logout Successful"}
+                    self.req_resp_object.response_json = logout_json
+                    self.dprint()
+                else:
+                    logout_json = {"status_code": response.status_code, "message": "Logout Failed"}
+                    self.req_resp_object.response_json = logout_json
+                    self.dprint()
         except Exception as err:
             msg = "Response parser error: {err_type} {err}".format(err_type=type(err), err=err)
             self.req_resp_object.error_msg = msg
