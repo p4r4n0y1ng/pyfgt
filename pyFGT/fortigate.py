@@ -131,7 +131,7 @@ class FortiGate(object):
         self._passwd = passwd if passwd is not None else apikey
         self._req_resp_object = RequestResponse()
         self._logger = None
-        self._fgt_login: FortiGateLogin = None
+        self._fgt_login = None
 
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -518,9 +518,15 @@ class FortiGate(object):
             return self._login_error
 
         def _send_login_info(self, json_request):
-            login_response = self._post_request(json_request)
-            self._req_resp_obj.response_json = login_response.json()
-            self._print_ptr()
+            login_response = self._post_login_request(json_request)
+            try:
+                self._req_resp_obj.response_json = login_response.json()
+                self._print_ptr()
+            except json.JSONDecodeError as err:
+                # possible legacy login will get a 401 here with no JSON response
+                self._req_resp_obj.response_json = {"status": login_response.status_code,
+                                                    "reason": login_response.reason}
+                self._print_ptr()
             return login_response
 
         def _do_login(self):
@@ -539,7 +545,7 @@ class FortiGate(object):
                 "request_key": True
             }
             response = self._send_login_info(json_request)
-            if response.status_code != 400 and response.status_code < 500:
+            if 400 <= response.status_code < 500:
                 # likely an old FGT - have to default back to old login ways
                 json_request = {
                     "username": self._user,
@@ -630,11 +636,18 @@ class FortiGate(object):
                     response.json().get("status_message", "")
                 self._session_key = response.json().get("session_key", "")
                 self._login_error = response.json().get("error", "")
+            elif 400 <= response.status_code < 500:
+                # look for legacy login issues
+                self._login_code = "NA"
+                self._login_message = "Possible legacy login requirement encountered"
+                self._login_code = 1
+                self._session_key = None
+                self._login_error = ""
             else:
                 msg = "Login failed and received a status code of {status}".format(status=response.status_code)
                 raise FGTConnectionError(msg)
 
-        def _post_request_deprecated(self):
+        def _post_login_request_deprecated(self):
             self._url = "{proto}://{host}/logincheck".format(proto="https" if self._use_ssl else "http",
                                                              host=self._host)
             self._req_resp_obj.reset()
@@ -677,7 +690,7 @@ class FortiGate(object):
                 raise FGTResponseNotFormedCorrect(msg)
             except IndexError as err:
                 msg = "Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
-                self.req_resp_object.error_msg = msg
+                self._req_resp_obj.error_msg = msg
                 self._print_ptr()
                 raise FGTResponseNotFormedCorrect(msg)
             except Exception as err:
@@ -686,9 +699,11 @@ class FortiGate(object):
                 self._print_ptr()
                 raise FGTBaseException(msg)
 
-        def _post_request(self, json_request):
+        def _post_login_request(self, json_request):
             if json_request.get("is_deprecated_login", False):
-                self._post_request_deprecated(json_request)
+                # legacy login found
+                response = self._post_login_request_deprecated()
+                return response
             else:
                 self._req_resp_obj.reset()
                 self._update_request_id()
@@ -700,6 +715,7 @@ class FortiGate(object):
                                                                                    uname=self._user, passwd=self._passwd)
                     response = self._session_ptr.post(self._url, verify=self._verify_ssl, timeout=self._timeout,
                                                       json=json_request)
+
                     # set the properties of the login object so the FGT can read them
                     self._set_login_values(response)
                     return response
