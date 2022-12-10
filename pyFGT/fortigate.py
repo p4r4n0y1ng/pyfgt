@@ -368,8 +368,8 @@ class FortiGate(object):
     def login(self):
         self._session = self.fgt_session
         self._fgt_login = self.FortiGateLogin(self._host, self._user, self._passwd, self._api_key_used, self._use_ssl,
-                                        self.verify_ssl, self.timeout, self.old_password, self.new_password,
-                                        self._req_resp_object, self.fgt_session, self.dprint)
+                                              self.verify_ssl, self.timeout, self.old_password, self.new_password,
+                                              self._req_resp_object, self.fgt_session, self.dprint)
         if self._fgt_login.login_code == 5:
             self._passwd = self._fgt_login.session_key
             self.api_key_used = True
@@ -380,7 +380,6 @@ class FortiGate(object):
             self.api_key_used = False
             self.sid = self._fgt_login.session_id
             self.req_id = self._fgt_login.request_id
-
         return self
 
     def logout(self):
