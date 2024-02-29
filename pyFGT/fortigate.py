@@ -363,10 +363,19 @@ class FortiGate(object):
                 else:
                     self.req_resp_object.response_json = response
                     self.dprint()
-                    if "http_status" in response:
-                        return response["http_status"], response
+                    # If request was made for multiple VDOMs, the response is
+                    # in a list
+                    if isinstance(response, list):
+                        status = []
+                        for r in response:
+                            if "http_status" in r:
+                                status.append(r["http_status"])
+                    elif "http_status" in response:
+                        status = response["http_status"]
                     else:
-                        return response["status"], response
+                        status = response["status"]
+
+                    return status, response                    
             except IndexError as err:
                 msg = "Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
                 self.req_resp_object.error_msg = msg
