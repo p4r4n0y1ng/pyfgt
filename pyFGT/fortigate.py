@@ -112,7 +112,7 @@ class RequestResponse(object):
 class FortiGate(object):
 
     def __init__(self, host, user=None, passwd=None, debug=False, use_ssl=True, verify_ssl=False, timeout=300,
-                 disable_request_warnings=False, apikey=None):
+                 disable_request_warnings=False, apikey=None, port=None):
         super(FortiGate, self).__init__()
         self._host = host
         self._user = user
@@ -130,6 +130,14 @@ class FortiGate(object):
         self._logger = None
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
+        if port is None:
+            if use_ssl:
+                self._port = 443
+            else:
+                self._port = 80
+        else:
+            self._port = port
 
     @property
     def api_key_used(self):
@@ -257,16 +265,22 @@ class FortiGate(object):
                 self.fgt_session.headers.update({"X-CSRFTOKEN": csrftoken})
             if "APSCOOKIE_" in cookie.name:
                 self.sid = cookie.value
+            if cookie.name == f"ccsrftoken_{self._port}":
+                csrftoken = cookie.value[1:-1]
+                self.fgt_session.headers.update({"X-CSRFTOKEN": csrftoken})
+            if f"APSCOOKIE_{self._port}" in cookie.name:
+                self.sid = cookie.value
+
 
     def _set_url(self, url, *args):
         if "logincheck" in url or "logout" in url:
-            self._url = "{proto}://{host}/{url}".format(proto="https" if self._use_ssl else "http",
-                                                        host=self._host, url=url)
+            self._url = "{proto}://{host}:{port}/{url}".format(proto="https" if self._use_ssl else "http",
+                                                        host=self._host, port=self._port, url=url)
         else:
             if url[0] == "/":
                 url = url[1:]
-            self._url = "{proto}://{host}/api/v2/{url}".format(proto="https" if self._use_ssl else "http",
-                                                               host=self._host, url=url)
+            self._url = "{proto}://{host}:{port}/api/v2/{url}".format(proto="https" if self._use_ssl else "http",
+                                                               host=self._host, port=self._port, url=url)
             if len(args) > 0:
                 self._url = "{url}?".format(url=self._url)
                 try:
@@ -349,10 +363,19 @@ class FortiGate(object):
                 else:
                     self.req_resp_object.response_json = response
                     self.dprint()
-                    if "http_status" in response:
-                        return response["http_status"], response
+                    # If request was made for multiple VDOMs, the response is
+                    # in a list
+                    if isinstance(response, list):
+                        status = []
+                        for r in response:
+                            if "http_status" in r:
+                                status.append(r["http_status"])
+                    elif "http_status" in response:
+                        status = response["http_status"]
                     else:
-                        return response["status"], response
+                        status = response["status"]
+
+                    return status, response                    
             except IndexError as err:
                 msg = "Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
                 self.req_resp_object.error_msg = msg
