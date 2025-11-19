@@ -124,13 +124,13 @@ class FortiGate(object):
         self._use_ssl = use_ssl
         self._verify_ssl = verify_ssl
         self._api_key_used = True if passwd is None and apikey is not None else False
-        self._api_key = apikey
-        self._passwd = passwd if passwd is not None else apikey
+        self._passwd = passwd
         self._req_resp_object = RequestResponse()
         self._logger = None
         self._fgt_login = None
         self._csrf_token = None
         self._session_token = None
+        self._api_key = apikey
 
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -257,7 +257,11 @@ class FortiGate(object):
 
     def _set_url(self, url, *args):
         if self.api_key_used:
-            self.fgt_session.headers.update({"Authorization": f"Bearer {self._passwd}"})
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._api_key}"})
+        elif self._session_token is not None:
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._session_token}"})
+        else:
+            self.fgt_session.headers.update({"X-CSRFTOKEN": self._csrf_token})
         if url[0] == "/":
             url = url[1:]
         proto = "https" if self._use_ssl else "http"
@@ -355,24 +359,16 @@ class FortiGate(object):
         self._session = self.fgt_session
         self._fgt_login = self.FortiGateLogin(self._host, self._user, self._passwd, self._api_key_used, self._use_ssl,
                                               self.verify_ssl, self.timeout, self._req_resp_object, self.fgt_session, self.dprint)
-        if self._fgt_login.login_code == 5:
-            self._passwd = self._fgt_login.session_key
-            self.api_key_used = True
-            self.sid = self._fgt_login.session_id
-            self.req_id = self._fgt_login.request_id
-        elif self._fgt_login.login_code == 1:
-            # legacy login taking place
-            self.api_key_used = False
-            self.sid = self._fgt_login.session_id
-            self.req_id = self._fgt_login.request_id
+        
+        self.sid = self._fgt_login.session_id
+        self.req_id = self._fgt_login.request_id
         return self
 
     def logout(self):
         self.req_resp_object.reset()
         self._update_request_id()
-        if self.api_key_used:
-            apikey = self._passwd if self.api_key_used else ""
-            self.fgt_session.headers.update({"Authorization": f"Bearer {apikey}"})
+        if self._api_key_used or self._session_token is not None:
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._api_key if self._api_key_used else self._session_token}"})
             proto = "https" if self._use_ssl else "http"
             self._url = f"{proto}://{self._host}/api/v2/authentication"
             self.req_resp_object.request_string = f"DELETE REQUEST: {self._url}"
@@ -383,7 +379,7 @@ class FortiGate(object):
         try:
             self.sid = None
             self.req_id = 0
-            if self.api_key_used:
+            if self._api_key_used or self._session_token is not None:
                 response = self.fgt_session.delete(self._url, verify=self._verify_ssl, timeout=self._timeout)
                 self.req_resp_object.response_json = response.json()
                 self.dprint()
@@ -403,6 +399,11 @@ class FortiGate(object):
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTBaseException(msg)
+        finally:
+            self._session.close()
+            self._api_key = None
+            self._csrf_token = None
+            self._session_token = None
 
     def __enter__(self):
         self.login()
@@ -506,7 +507,6 @@ class FortiGate(object):
                 # possible legacy login will get a 401 here with no JSON response
                 self._req_resp_obj.response_json = {"status": login_response.status_code, "reason": login_response.reason}
                 self._print_ptr()
-            return login_response
 
         def _do_login(self):
             if self._api_key_used:
@@ -538,27 +538,23 @@ class FortiGate(object):
                                                     json=json_request)
 
                 if response.status_code == 200:
+                    # if session_key response set the sesssion token and carry on (older FOS version)
                     self._session_token = response.json().get("session_key", None)
                     if self._session_token is None:
                         # Check for CSRF token in cookies (newer FortiOS versions)
                         for cookie in self._session_ptr.cookies:
                             if "ccsrf_token" in cookie.name.lower():
                                 self._csrf_token = cookie.value
-                                self._api_key_used = False
-                    else:
-                        # have to use the session_key in Bearer auth. Shortcut it to the csrf_token and call it the api_key
-                        self._api_key_used = True
-                        self._api_key = self.csrf_token
                     
-                    if self.csrf_token is None:
+                    if self._csrf_token is None and self._session_token is None:
                         self._login_message = "Login failed no CSRF Token or Session Key found."
                         raise FGTConnectionError(self.login_message)
                     else:
-                        self._login_message = f"Login request response status code is 200. Token found as {self.csrf_token}"
+                        self._login_message = f"Login request response status code is 200. Token found as \
+                            {self._csrf_token if self._csrf_token is not None else self._session_token}"
                 else:
                     self._login_message = f"Login failed and received a status code of {response.status_code}"
                     raise FGTConnectionError(self.login_message)
-
                 return response
             except FGTConnectionError as err:
                 self._req_resp_obj.error_msg = str(err)
