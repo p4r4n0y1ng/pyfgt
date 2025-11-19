@@ -19,13 +19,11 @@ class FGTValidSessionException(FGTBaseException):
 
     def __init__(self, method, url, **kwargs):
         if kwargs:
-            msg = "A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
-                  "valid session or was not connected. Parameters were:\n{params}". \
-                format(method=method, url=url, params=kwargs)
+            msg = f"A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
+                  f"valid session or was not connected. Parameters were:\n{kwargs}"
         else:
-            msg = "A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
-                  "valid session or was not connected.". \
-                format(method=method, url=url)
+            msg = f"A call using the {method} method was requested to {url} on a FortiOS instance that had no " \
+                  f"valid session or was not connected."
         super(FGTValidSessionException, self).__init__(msg)
 
 
@@ -113,7 +111,7 @@ class RequestResponse(object):
 class FortiGate(object):
 
     def __init__(self, host, user=None, passwd=None, debug=False, use_ssl=True, verify_ssl=False, timeout=300,
-                 disable_request_warnings=False, apikey=None, old_password="", new_password=""):
+                 disable_request_warnings=False, apikey=None):
         super(FortiGate, self).__init__()
         self._host = host
         self._user = user
@@ -125,15 +123,14 @@ class FortiGate(object):
         self._debug = debug
         self._use_ssl = use_ssl
         self._verify_ssl = verify_ssl
-        self._old_passwd = old_password
-        # will likely be deprecated in the future
-        self._new_passwd = new_password
-        # will likely be deprecated in the future
         self._api_key_used = True if passwd is None and apikey is not None else False
+        self._api_key = apikey
         self._passwd = passwd if passwd is not None else apikey
         self._req_resp_object = RequestResponse()
         self._logger = None
         self._fgt_login = None
+        self._csrf_token = None
+        self._session_token = None
 
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -145,26 +142,6 @@ class FortiGate(object):
     @api_key_used.setter
     def api_key_used(self, val):
         self._api_key_used = val
-
-    @property
-    def old_password(self):
-        # will likely be deprecated in the future
-        return self._old_passwd
-
-    @old_password.setter
-    def old_password(self, val):
-        # will likely be deprecated in the future
-        self._old_passwd = val
-
-    @property
-    def new_password(self):
-        # will likely be deprecated in the future
-        return self._new_passwd
-
-    @new_password.setter
-    def new_password(self, val):
-        # will likely be deprecated in the future
-        self._new_passwd = val
 
     @property
     def debug(self):
@@ -208,6 +185,10 @@ class FortiGate(object):
     @timeout.setter
     def timeout(self, val):
         self._timeout = val
+
+    @property
+    def session_token(self):
+        return self._session_token
 
     @property
     def fgt_session(self):
@@ -276,13 +257,13 @@ class FortiGate(object):
 
     def _set_url(self, url, *args):
         if self.api_key_used:
-            self.fgt_session.headers.update({"Authorization": "Bearer {apikey}".format(apikey=self._passwd)})
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._passwd}"})
         if url[0] == "/":
             url = url[1:]
-        self._url = "{proto}://{host}/api/v2/{url}".format(proto="https" if self._use_ssl else "http",
-                                                           host=self._host, url=url)
+        proto = "https" if self._use_ssl else "http"
+        self._url = f"{proto}://{self._host}/api/v2/{url}"
         if len(args) > 0:
-            self._url = "{url}?".format(url=self._url)
+            self._url = f"{self._url}?"
             try:
                 self._url = self._url + "&".join(args)
             except:
@@ -314,12 +295,12 @@ class FortiGate(object):
                 else:
                     return response["status"], response
         except IndexError as err:
-            msg = "Index error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            msg = f"Index error in response: {type(err)} {err}\n\n"
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTResponseNotFormedCorrect(msg)
         except Exception as e:
-            print("Response parser error: {err_type} {err}".format(err_type=type(e), err=e))
+            print(f"Response parser error: {type(e)} {e}")
             return -1, e
 
     def add_header(self, header_dict):
@@ -340,7 +321,7 @@ class FortiGate(object):
             if params is not None:
                 json_request = params
             method_to_call = getattr(self.fgt_session, method)
-            self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method=method.upper(), url=self._url)
+            self.req_resp_object.request_string = f"{method.upper()} REQUEST: {self._url}"
             self.req_resp_object.request_json = json_request
             if len(json_request) == 0:
                 response = method_to_call(self._url, headers=self.fgt_session.headers, verify=self.verify_ssl,
@@ -349,22 +330,22 @@ class FortiGate(object):
                 response = method_to_call(self._url, headers=self.fgt_session.headers, data=json.dumps(json_request),
                                           verify=self.verify_ssl, timeout=self.timeout)
         except ReqConnError as err:
-            msg = "Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            msg = f"Connection error: {type(err)} {err}\n\n"
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTConnectionError(msg)
         except ValueError as err:
-            msg = "Value error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            msg = f"Value error: {type(err)} {err}\n\n"
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTValueError(msg)
         except KeyError as err:
-            msg = "Key error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+            msg = f"Key error in response: {type(err)} {err}\n\n"
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTResponseNotFormedCorrect(msg)
         except Exception as err:
-            msg = "Response parser error: {err_type} {err}".format(err_type=type(err), err=err)
+            msg = f"Response parser error: {type(err)} {err}"
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTBaseException(msg)
@@ -390,14 +371,15 @@ class FortiGate(object):
         self.req_resp_object.reset()
         self._update_request_id()
         if self.api_key_used:
-            self.fgt_session.headers.update({"Authorization": "Bearer {apikey}".
-                                            format(apikey=self._passwd if self.api_key_used else "")})
-            self._url = "{proto}://{host}/api/v2/authentication".\
-                format(proto="https" if self._use_ssl else "http", host=self._host)
-            self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method="DELETE", url=self._url)
+            apikey = self._passwd if self.api_key_used else ""
+            self.fgt_session.headers.update({"Authorization": f"Bearer {apikey}"})
+            proto = "https" if self._use_ssl else "http"
+            self._url = f"{proto}://{self._host}/api/v2/authentication"
+            self.req_resp_object.request_string = f"DELETE REQUEST: {self._url}"
         else:
-            self._url = "{proto}://{host}/logout".format(proto="https" if self._use_ssl else "http", host=self._host)
-            self.req_resp_object.request_string = "{method} REQUEST: {url}".format(method="POST", url=self._url)
+            proto = "https" if self._use_ssl else "http"
+            self._url = f"{proto}://{self._host}/logout"
+            self.req_resp_object.request_string = f"POST REQUEST: {self._url}"
         try:
             self.sid = None
             self.req_id = 0
@@ -417,7 +399,7 @@ class FortiGate(object):
                     self.req_resp_object.response_json = logout_json
                     self.dprint()
         except Exception as err:
-            msg = "Response parser error: {err_type} {err}".format(err_type=type(err), err=err)
+            msg = f"Response parser error: {type(err)} {err}"
             self.req_resp_object.error_msg = msg
             self.dprint()
             raise FGTBaseException(msg)
@@ -453,16 +435,13 @@ class FortiGate(object):
 
     def __str__(self):
         if self.sid is not None:
-            return "FortiOS instance connnected to {host}.".format(host=self._host)
+            return f"FortiOS instance connnected to {self._host}."
         return "FortiOS object with no valid connection to a FortiOS appliance."
 
     def __repr__(self):
         if self.sid is not None:
-            return "{classname}(host={host}, pwd omitted, debug={debug}, use_ssl={use_ssl}, " \
-                   "verify_ssl={verify_ssl}, timeout={timeout})".format(classname=self.__class__.__name__,
-                                                                        host=self._host, debug=self._debug,
-                                                                        use_ssl=self._use_ssl, timeout=self._timeout,
-                                                                        verify_ssl=self._verify_ssl)
+            return f"{self.__class__.__name__}(host={self._host}, pwd omitted, debug={self._debug}, use_ssl={self._use_ssl}, " \
+                   f"verify_ssl={self._verify_ssl}, timeout={self._timeout})"
         return "FortiOS object with no valid connection to a FortiOS appliance."
 
     class FortiGateLogin(object):
@@ -470,16 +449,18 @@ class FortiGate(object):
         def __init__(self, host, user, passwd, api_key_used, use_ssl, verify_ssl, timeout,
                      req_resp_obj: RequestResponse, session_ptr: requests.sessions.Session,
                      print_ptr):
-            self._url = "{proto}://{host}/api/v2/authentication".format(proto="https" if use_ssl else "http", host=host)
+            proto = "https" if use_ssl else "http"
+            self._url = f"{proto}://{host}/api/v2/authentication"
             self._host = host
             self._user = user
             self._timeout = timeout
             self._verify_ssl = verify_ssl
             self._use_ssl = use_ssl
-            self._api_key = passwd
             self._passwd = passwd
             self._api_key_used = api_key_used
             self._csrf_token = None
+            self._session_token = None
+            self._api_key = passwd if api_key_used else None
             self._session_id = None
             self._req_id = 0
             self._login_message = "NA"
@@ -507,6 +488,14 @@ class FortiGate(object):
         @property
         def csrf_token(self):
             return self._csrf_token
+
+        @property
+        def session_token(self):
+            return self._session_token
+
+        @property
+        def api_key(self):
+            return self._api_key
         
         def _send_login_info(self, json_request):
             login_response = self._post_login_request(json_request)
@@ -521,9 +510,9 @@ class FortiGate(object):
 
         def _do_login(self):
             if self._api_key_used:
-                self.csrf_token = self._passwd
-                self.login_message = "API Key used at login"
-                self.session_id = str(uuid.uuid4())
+                # api key already set at instantiation - just return and write the messaging that API key is used
+                self._login_message = "API Key used at login"
+                self._session_id = str(uuid.uuid4())
                 self._req_resp_obj.response_json = {"status": 0, "reason": "Using API Token"}
                 self._print_ptr()
                 return
@@ -543,31 +532,31 @@ class FortiGate(object):
             self._session_ptr.headers.update({"Content-Type": "json", "accept": "application/json"})
             response = None
             try:
-                self._req_resp_obj.request_string = "{method} REQUEST: {url} for user {uname} with " \
-                                                    "password {passwd}".format(method="POST", url=self._url,
-                                                                                uname=self._user, passwd=self._passwd)
+                self._req_resp_obj.request_string = f"POST REQUEST: {self._url} for user {self._user} with " \
+                                                    f"password {self._passwd}"
                 response = self._session_ptr.post(self._url, verify=self._verify_ssl, timeout=self._timeout,
                                                     json=json_request)
 
                 if response.status_code == 200:
-                    self.csrf_token = response.json().get("session_key", None)
-                    if self.csrf_token is None:
+                    self._session_token = response.json().get("session_key", None)
+                    if self._session_token is None:
                         # Check for CSRF token in cookies (newer FortiOS versions)
                         for cookie in self._session_ptr.cookies:
                             if "ccsrf_token" in cookie.name.lower():
-                                self.csrf_token = cookie.value
+                                self._csrf_token = cookie.value
                                 self._api_key_used = False
                     else:
-                        # have to use the session_key in Bearer auth. Shortcut it to the csrf_token
+                        # have to use the session_key in Bearer auth. Shortcut it to the csrf_token and call it the api_key
                         self._api_key_used = True
+                        self._api_key = self.csrf_token
                     
                     if self.csrf_token is None:
                         self._login_message = "Login failed no CSRF Token or Session Key found."
                         raise FGTConnectionError(self.login_message)
                     else:
-                        self.login_message = f"Login request response status code is 200. Token found as {csrf}".format(csrf=self.csrf_token)
+                        self._login_message = f"Login request response status code is 200. Token found as {self.csrf_token}"
                 else:
-                    self.login_message = "Login failed and received a status code of {status}".format(status=response.status_code)
+                    self._login_message = f"Login failed and received a status code of {response.status_code}"
                     raise FGTConnectionError(self.login_message)
 
                 return response
@@ -576,27 +565,27 @@ class FortiGate(object):
                 self._print_ptr()
                 raise FGTConnectionError(self._req_resp_obj.error_msg)
             except ReqConnError as err:
-                msg = "Connection error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+                msg = f"Connection error: {type(err)} {err}\n\n"
                 self._req_resp_obj.error_msg = msg
                 self._print_ptr()
                 raise FGTConnectionError(msg)
             except json.JSONDecodeError as err:
-                msg = "JSON decode error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+                msg = f"JSON decode error in response: {type(err)} {err}\n\n"
                 self._req_resp_obj.error_msg = msg
                 self._print_ptr()
                 raise FGTValueError(msg)
             except ValueError as err:
-                msg = "Value error: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+                msg = f"Value error: {type(err)} {err}\n\n"
                 self._req_resp_obj.error_msg = msg
                 self._print_ptr()
                 raise FGTValueError(msg)
             except KeyError as err:
-                msg = "Key error in response: {err_type} {err}\n\n".format(err_type=type(err), err=err)
+                msg = f"Key error in response: {type(err)} {err}\n\n"
                 self._req_resp_obj.error_msg = msg
                 self._print_ptr()
                 raise FGTResponseNotFormedCorrect(msg)
             except Exception as err:
-                msg = "Response parser error: {err_type} {err}".format(err_type=type(err), err=err)
+                msg = f"Response parser error: {type(err)} {err}"
                 self._req_resp_obj.error_msg = msg
                 self._print_ptr()
                 raise FGTBaseException(msg)
