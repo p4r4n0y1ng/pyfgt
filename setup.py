@@ -11,7 +11,7 @@ setup(
     license='Apache 2.0',
     author='p4r4n0y1ng',
     author_email='jhuber@fortinet.com',
-    description='Represents the base components of the Fortinet FortiGate REST interface with abstractions',
+    description='Represents the base components of the Fortinet FortiGate REST interface with abstractions.',
     long_description=long_desc,
     long_description_content_type="text/markdown",
     include_package_data=True,
