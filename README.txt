@@ -1,7 +1,5 @@
 ## Synopsis
 
-This package has been modified to work with the new login standards that began in the 7.0 timeframe. However, it does work as far back as FOS 6.4.9.
-
 Represents the base components of the Fortinet FortiGate REST interface. This code is based on the fortigate code provided in the ftntlib package as provided on the Fortinet Developer Network (FNDN) that was originally written by multiple personnel to include Ashton Turpin. It has since been modified by several others within Fortinet. This has now been streamlined and modified to utilize the standard **\**kwargs** functionality as well as has been modified extensively to be more scalable and provide context management and other aspects to inlcude handling the API Key functionality added with recent versions of FortiOS code.
 
 ## Code Example
@@ -121,36 +119,6 @@ A standard, response mechanism is provided from this module so calling objects k
 
 (0, {"status_code": response.status_code, "message": "Logout Successful"})
 ``` 
-
-## Logging
-
-A logging functionality has been provided to enable logging to different handlers as required by the caller using the standard python logging facility. The capability to start logging is simply by calling the *getLog* function. This function returns the internal logging reference held by the FortiGate instance. To add or remove a handler use the associated *addHandler()* or *removeHandler()* functions providing a FileHandler or StreamHandler etc... object. The signature for the *getLog()* function is:
-
-```
-def getLog(self, loggername="fortinet", lvl=logging.INFO)
-``` 
-
-Once a logger is created by calling the *getLog* function, the logger will log the debug information to whatever handler was provided to the *addHandler()* function. If more than one handler is added, more than one log will occur. To stop logging simply use the *resetLog()* function and the Logging object will be set to None. An example of how to log all debug output to a file would be:
-
-```
-fgt.getLog(loggername="fgt")
-fh = logging.FileHandler("/location/to/log/fil.log")
-fh.setLevel(logging.INFO)
-fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s: %(message)s ", "%m/%d/%Y %I:%M:%S %p"))
-fgt.addHandler(fh)
-```
-
-An external module can utilize standard logging functionality to provide a subordinate type logging function using the same handlers as provided to the pyFGT module. For instance, to log to the same location as the pyFGT module logs Handler is set, you would simply have to do the following:
-
-```
-fgt_logger = logging.getLogger("fgt.drvr")
-
-# somewhere in the module
-fgt_logger.log(logging.INFO, "This is a log message)
-```
-
-The log output in this case would have the fgt.drvr moniker in the format header due to the use of the *%(name)s* format string shown above.
-
 
 ## Motivation
 
