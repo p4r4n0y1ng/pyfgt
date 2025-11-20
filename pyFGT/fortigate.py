@@ -124,13 +124,10 @@ class FortiGate(object):
         self._use_ssl = use_ssl
         self._verify_ssl = verify_ssl
         self._api_key_used = True if passwd is None and apikey is not None else False
-        self._passwd = passwd
+        self._passwd = passwd if passwd is not None else apikey
         self._req_resp_object = RequestResponse()
         self._logger = None
         self._fgt_login = None
-        self._csrf_token = None
-        self._session_token = None
-        self._api_key = apikey
 
         if disable_request_warnings:
             requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -185,10 +182,6 @@ class FortiGate(object):
     @timeout.setter
     def timeout(self, val):
         self._timeout = val
-
-    @property
-    def session_token(self):
-        return self._session_token
 
     @property
     def fgt_session(self):
@@ -257,11 +250,12 @@ class FortiGate(object):
 
     def _set_url(self, url, *args):
         if self.api_key_used:
-            self.fgt_session.headers.update({"Authorization": f"Bearer {self._api_key}"})
-        elif self._session_token is not None:
-            self.fgt_session.headers.update({"Authorization": f"Bearer {self._session_token}"})
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._fgt_login.api_key}"})
+        elif self._fgt_login.session_token is not None:
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._fgt_login.session_token}"})
         else:
-            self.fgt_session.headers.update({"X-CSRFTOKEN": self._csrf_token})
+            #CSRF token being used
+            self.fgt_session.headers.update({"X-CSRFTOKEN": self._fgt_login.csrf_token})
         if url[0] == "/":
             url = url[1:]
         proto = "https" if self._use_ssl else "http"
@@ -367,8 +361,8 @@ class FortiGate(object):
     def logout(self):
         self.req_resp_object.reset()
         self._update_request_id()
-        if self._api_key_used or self._session_token is not None:
-            self.fgt_session.headers.update({"Authorization": f"Bearer {self._api_key if self._api_key_used else self._session_token}"})
+        if self._api_key_used or self._fgt_login.session_token is not None:
+            self.fgt_session.headers.update({"Authorization": f"Bearer {self._fgt_login.api_key if self._api_key_used else self._fgt_login.session_token}"})
             proto = "https" if self._use_ssl else "http"
             self._url = f"{proto}://{self._host}/api/v2/authentication"
             self.req_resp_object.request_string = f"DELETE REQUEST: {self._url}"
@@ -379,7 +373,7 @@ class FortiGate(object):
         try:
             self.sid = None
             self.req_id = 0
-            if self._api_key_used or self._session_token is not None:
+            if self._api_key_used or self._fgt_login.session_token is not None:
                 response = self.fgt_session.delete(self._url, verify=self._verify_ssl, timeout=self._timeout)
                 self.req_resp_object.response_json = response.json()
                 self.dprint()
@@ -401,9 +395,9 @@ class FortiGate(object):
             raise FGTBaseException(msg)
         finally:
             self._session.close()
-            self._api_key = None
-            self._csrf_token = None
-            self._session_token = None
+            self._fgt_login._api_key = None
+            self._fgt_login._csrf_token = None
+            self._fgt_login._session_token = None
 
     def __enter__(self):
         self.login()
@@ -513,6 +507,7 @@ class FortiGate(object):
                 # api key already set at instantiation - just return and write the messaging that API key is used
                 self._login_message = "API Key used at login"
                 self._session_id = str(uuid.uuid4())
+                self._req_resp_obj.request_string = f"Login request to {self._url} not made purposefully. API Token will be utilized on each call."
                 self._req_resp_obj.response_json = {"status": 0, "reason": "Using API Token"}
                 self._print_ptr()
                 return
@@ -552,6 +547,7 @@ class FortiGate(object):
                     else:
                         self._login_message = f"Login request response status code is 200. Token found as \
                             {self._csrf_token if self._csrf_token is not None else self._session_token}"
+                        self._session_id = str(uuid.uuid4())
                 else:
                     self._login_message = f"Login failed and received a status code of {response.status_code}"
                     raise FGTConnectionError(self.login_message)
