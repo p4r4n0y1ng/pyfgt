@@ -1,5 +1,7 @@
 ## Synopsis
 
+This package has been modified to work with the new login standards that began in the 7.0 timeframe. However, it does work as far back as FOS 6.4.9.
+
 Represents the base components of the Fortinet FortiGate REST interface. This code is based on the fortigate code provided in the ftntlib package as provided on the Fortinet Developer Network (FNDN) that was originally written by multiple personnel to include Ashton Turpin. It has since been modified by several others within Fortinet. This has now been streamlined and modified to utilize the standard **\**kwargs** functionality as well as has been modified extensively to be more scalable and provide context management and other aspects to inlcude handling the API Key functionality added with recent versions of FortiOS code.
 
 ## Code Example

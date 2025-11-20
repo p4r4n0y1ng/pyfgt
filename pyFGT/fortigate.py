@@ -361,39 +361,54 @@ class FortiGate(object):
     def logout(self):
         self.req_resp_object.reset()
         self._update_request_id()
-        if self._api_key_used or self._fgt_login.session_token is not None:
+        if self._fgt_login.session_token is None and self._fgt_login.csrf_token is None and not self._fgt_login._api_key_used:
+            # houston we have a problem - why are we here
+            logout_json = {"status_code": -1, "message": "No current token or API Key to utilize to logout with. This code should not have been reached. If session alive it will be closed"}
+            self.req_resp_object.response_json = logout_json
+            self.dprint()
+            try:
+                self._session.close()
+            except:
+                pass
+            return
+        if self._fgt_login.session_token is not None:
             self.fgt_session.headers.update({"Authorization": f"Bearer {self._fgt_login.api_key if self._api_key_used else self._fgt_login.session_token}"})
             proto = "https" if self._use_ssl else "http"
             self._url = f"{proto}://{self._host}/api/v2/authentication"
             self.req_resp_object.request_string = f"DELETE REQUEST: {self._url}"
+        elif self._fgt_login._api_key_used:
+            # api key used
+            self.req_resp_object.request_string = f"API Key Utilized - Session Closure occurring"
         else:
+            # legacy logout
             proto = "https" if self._use_ssl else "http"
             self._url = f"{proto}://{self._host}/logout"
             self.req_resp_object.request_string = f"POST REQUEST: {self._url}"
         try:
             self.sid = None
             self.req_id = 0
-            if self._api_key_used or self._fgt_login.session_token is not None:
+            if self._fgt_login.session_token is not None:
                 response = self.fgt_session.delete(self._url, verify=self._verify_ssl, timeout=self._timeout)
                 self.req_resp_object.response_json = response.json()
-                self.dprint()
+            elif self._fgt_login._api_key_used:
+                # api key logout - session just needs to die which is done in the finally
+                logout_json = {"status_code": 200, "message": "Logout Successful - API Key Used. Session will be closed."}
+                self.req_resp_object.response_json = logout_json
             else:
                 # legacy logout taking place
                 response = self.fgt_session.post(self._url, verify=self._verify_ssl, timeout=self._timeout)
                 if response.status_code == 200:
                     logout_json = {"status_code": response.status_code, "message": "Logout Successful"}
                     self.req_resp_object.response_json = logout_json
-                    self.dprint()
                 else:
                     logout_json = {"status_code": response.status_code, "message": "Logout Failed"}
                     self.req_resp_object.response_json = logout_json
-                    self.dprint()
         except Exception as err:
             msg = f"Response parser error: {type(err)} {err}"
             self.req_resp_object.error_msg = msg
-            self.dprint()
             raise FGTBaseException(msg)
         finally:
+            self.dprint()
             self._session.close()
             self._fgt_login._api_key = None
             self._fgt_login._csrf_token = None
